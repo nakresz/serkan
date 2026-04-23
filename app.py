@@ -51,25 +51,27 @@ context = "\n\n".join([doc.page_content for doc in relevant_docs])
 concept_prompt = f"""
 You are helping build a first-principles academic assistant.
 
-From the context and question below, extract the 3 to 6 most important CORE PHYSICS concepts
-needed to explain the answer from first principles.
+From the context and question below, extract the 3 to 6 most important concepts that are
+DIRECTLY necessary to explain the question from first principles.
 
-Focus on:
-- foundational physical ideas
-- main mathematical objects
-- core dynamical concepts
+Prioritize:
+- the main physical object
+- the main dynamical idea
+- the main governing equation
+- the most central mathematical structure
 
-Do NOT focus on:
-- minor details
-- secondary consequences
-- descriptive phrases unless they are central
+Avoid:
+- secondary quantities
+- consequences
+- measurement-related quantities unless the question directly asks for them
+- introductory wording from the text
 
 Rules:
-1. Return only the concept names.
-2. Use short concept phrases.
-3. No explanations.
-4. One concept per line.
-5. Prefer fundamental concepts over derived quantities.
+- Return only concept names
+- No numbering
+- No bullet points
+- No explanations
+- One concept per line
 
 Context:
 {context}
@@ -87,23 +89,55 @@ print("Key Concepts:")
 print(concepts)
 print("\n" + "=" * 50)
 
-# Step 2: Generate first-principles explanation
-answer_prompt = f"""
-You are a physics professor teaching a university student.
+# Step 2: Build reasoning plan
+plan_prompt = f"""
+You are a physics professor preparing a lesson.
 
-Your task is to answer the question from FIRST PRINCIPLES.
+Using the concepts below, create a logical teaching plan.
 
-Use the following extracted concepts as the backbone of your explanation:
+Concepts:
 {concepts}
 
 Rules:
-1. Start from the most basic idea.
-2. Explain why the concept is needed in physics.
-3. Build the explanation step by step.
-4. Use simple but scientifically correct language.
-5. Do not just summarize the context.
-6. Do not say "the text says" or "according to the context".
-7. End with a short intuitive takeaway.
+- Start from basics
+- Build step by step
+- Only outline steps (no explanations)
+- Keep it short
+
+Format:
+1. ...
+2. ...
+3. ...
+"""
+
+plan_response = llm.invoke(plan_prompt)
+reasoning_plan = plan_response.content.strip()
+
+print("Reasoning Plan:")
+print(reasoning_plan)
+print("\n" + "=" * 50)
+
+# Step 3: Generate final answer using plan
+answer_prompt = f"""
+You are a physics professor teaching a university student.
+
+Use the concepts and reasoning plan below to build a clear first-principles explanation.
+
+Concepts:
+{concepts}
+
+Reasoning plan:
+{reasoning_plan}
+
+Rules:
+1. Follow the reasoning plan step by step.
+2. Start from the most basic physical idea.
+3. Explain why the concept is needed.
+4. Use intuitive but scientifically correct language.
+5. Do not summarize the text mechanically.
+6. Do not mention the plan explicitly.
+7. Make the explanation pedagogical and clear.
+8. End with a short intuition and a short takeaway.
 
 Context:
 {context}
@@ -111,19 +145,16 @@ Context:
 Question:
 {query}
 
-Answer in this structure:
+Answer in exactly this structure:
 
 Core idea:
 ...
-
-Key concepts used:
-- ...
-- ...
 
 Step-by-step explanation:
 1. ...
 2. ...
 3. ...
+4. ...
 
 Intuition:
 ...
