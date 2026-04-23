@@ -44,21 +44,32 @@ query = "What is the Schrödinger equation?"
 # Retrieve relevant chunks
 relevant_docs = retriever.invoke(query)
 
-print("Retrieved chunks:")
-print("-" * 50)
-
-for i, doc in enumerate(relevant_docs):
-    print(f"\nChunk {i + 1}:")
-    print(doc.page_content[:500])
-
-print("\n" + "=" * 50)
-
-# Combine context
+# Combine retrieved context
 context = "\n\n".join([doc.page_content for doc in relevant_docs])
 
-# Final answer prompt
-prompt = f"""
-Answer the question based only on the context below.
+# Step 1: Extract key concepts
+concept_prompt = f"""
+You are helping build a first-principles academic assistant.
+
+From the context and question below, extract the 3 to 6 most important CORE PHYSICS concepts
+needed to explain the answer from first principles.
+
+Focus on:
+- foundational physical ideas
+- main mathematical objects
+- core dynamical concepts
+
+Do NOT focus on:
+- minor details
+- secondary consequences
+- descriptive phrases unless they are central
+
+Rules:
+1. Return only the concept names.
+2. Use short concept phrases.
+3. No explanations.
+4. One concept per line.
+5. Prefer fundamental concepts over derived quantities.
 
 Context:
 {context}
@@ -66,10 +77,62 @@ Context:
 Question:
 {query}
 
-Answer:
+Concepts:
 """
 
-response = llm.invoke(prompt)
+concept_response = llm.invoke(concept_prompt)
+concepts = concept_response.content.strip()
 
-print("\nFinal Answer:")
+print("Key Concepts:")
+print(concepts)
+print("\n" + "=" * 50)
+
+# Step 2: Generate first-principles explanation
+answer_prompt = f"""
+You are a physics professor teaching a university student.
+
+Your task is to answer the question from FIRST PRINCIPLES.
+
+Use the following extracted concepts as the backbone of your explanation:
+{concepts}
+
+Rules:
+1. Start from the most basic idea.
+2. Explain why the concept is needed in physics.
+3. Build the explanation step by step.
+4. Use simple but scientifically correct language.
+5. Do not just summarize the context.
+6. Do not say "the text says" or "according to the context".
+7. End with a short intuitive takeaway.
+
+Context:
+{context}
+
+Question:
+{query}
+
+Answer in this structure:
+
+Core idea:
+...
+
+Key concepts used:
+- ...
+- ...
+
+Step-by-step explanation:
+1. ...
+2. ...
+3. ...
+
+Intuition:
+...
+
+Short takeaway:
+...
+"""
+
+response = llm.invoke(answer_prompt)
+
+print("Final Answer:")
 print(response.content)
