@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -17,19 +18,22 @@ if not api_key:
     st.error("OPENAI_API_KEY not found in .env file.")
     st.stop()
 
-# Streamlit page setup
+# Streamlit UI
 st.set_page_config(page_title="First-Principles Academic RAG Assistant")
 st.title("First-Principles Academic RAG Assistant")
-st.write("Ask questions about your academic PDF and get first-principles explanations.")
+st.write("Upload a PDF and ask questions about it.")
 
-# PDF path
-pdf_path = "data/raw/sample.pdf"
+uploaded_file = st.file_uploader("Upload your PDF", type="pdf")
 
 
 @st.cache_resource
-def build_vector_store() -> FAISS:
-    """Load the PDF, split it into chunks, and build a FAISS vector store."""
-    loader = PyPDFLoader(pdf_path)
+def build_vector_store(pdf_bytes: bytes):
+    """Build a FAISS vector store from uploaded PDF bytes."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(pdf_bytes)
+        temp_pdf_path = tmp_file.name
+
+    loader = PyPDFLoader(temp_pdf_path)
     documents = loader.load()
 
     text_splitter = RecursiveCharacterTextSplitter(
@@ -44,22 +48,29 @@ def build_vector_store() -> FAISS:
     return vector_store
 
 
-# Build app resources
-vector_store = build_vector_store()
-retriever = vector_store.as_retriever(search_kwargs={"k": 3})
-llm = ChatOpenAI(api_key=api_key, temperature=0)
+if uploaded_file:
+    pdf_bytes = uploaded_file.read()
+    vector_store = build_vector_store(pdf_bytes)
+    retriever = vector_store.as_retriever(search_type="mmr",search_kwargs={"k": 3, "fetch_k":6, "lambda_mult":0.7})
+    llm = ChatOpenAI(api_key=api_key, temperature=0)
 
-# User input
-query = st.text_input("Ask a question:")
+    query = st.text_input("Ask a question:")
 
-if st.button("Ask") and query:
-    with st.spinner("Thinking..."):
-        # Step 1: Retrieve relevant chunks
-        relevant_docs = retriever.invoke(query)
-        context = "\n\n".join([doc.page_content for doc in relevant_docs])
+    if st.button("Ask") and query:
+        with st.spinner("Thinking..."):
+            relevant_docs = retriever.invoke(query)
+            context = "\n\n".join([doc.page_content for doc in relevant_docs])
 
-        # Step 2: Extract core concepts
-        concept_prompt = f"""
+            # Extract source pages
+            source_pages = []
+            for doc in relevant_docs:
+                page_num = doc.metadata.get("page")
+                if page_num is not None:
+                    source_pages.append(page_num + 1)
+
+            unique_pages = sorted(set(source_pages))
+
+            concept_prompt = f"""
 You are helping build a first-principles academic assistant.
 
 From the context and question below, extract the 3 to 6 most important concepts that are
@@ -92,11 +103,10 @@ Question:
 
 Concepts:
 """
-        concept_response = llm.invoke(concept_prompt)
-        concepts = concept_response.content.strip()
+            concept_response = llm.invoke(concept_prompt)
+            concepts = concept_response.content.strip()
 
-        # Step 3: Build reasoning plan
-        plan_prompt = f"""
+            plan_prompt = f"""
 You are a physics professor preparing a teaching plan.
 
 Question:
@@ -121,11 +131,10 @@ Format:
 3. ...
 4. ...
 """
-        plan_response = llm.invoke(plan_prompt)
-        reasoning_plan = plan_response.content.strip()
+            plan_response = llm.invoke(plan_prompt)
+            reasoning_plan = plan_response.content.strip()
 
-        # Step 4: Generate final answer
-        answer_prompt = f"""
+            answer_prompt = f"""
 You are a physics professor teaching a university student.
 
 Use the concepts and reasoning plan below to build a clear first-principles explanation.
@@ -171,14 +180,24 @@ Intuition:
 Short takeaway:
 ...
 """
-        response = llm.invoke(answer_prompt)
+            response = llm.invoke(answer_prompt)
 
-    # UI output
-    st.subheader("Key Concepts")
-    st.text(concepts)
+        st.subheader("Source Pages")
+        st.write(", ".join(str(page) for page in unique_pages))
 
-    st.subheader("Reasoning Plan")
-    st.text(reasoning_plan)
+        st.subheader("Key Concepts")
+        st.text(concepts)
 
-    st.subheader("Answer")
-    st.write(response.content)
+        st.subheader("Reasoning Plan")
+        st.text(reasoning_plan)
+
+        st.subheader("Answer")
+        st.write(response.content)
+
+        with st.expander("Show retrieved context"):
+            for i, doc in enumerate(relevant_docs, start=1):
+                page_num = doc.metadata.get("page", "Unknown")
+                display_page = page_num + 1 if isinstance(page_num, int) else page_num
+                st.markdown(f"**Chunk {i} — Page {display_page}**")
+                st.write(doc.page_content)
+                st.markdown("---")
